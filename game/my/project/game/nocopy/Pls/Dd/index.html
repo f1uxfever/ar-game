@@ -3,111 +3,105 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no">
-    <title>AR Roller Coaster JS Only</title>
-    
+    <title>Flux AR Coaster</title>
     <script src="https://cdn.jsdelivr.net/npm/@mediapipe/hands/hands.js" crossorigin="anonymous"></script>
     <script src="https://cdn.jsdelivr.net/npm/@mediapipe/camera_utils/camera_utils.js" crossorigin="anonymous"></script>
     <script src="https://cdn.jsdelivr.net/npm/@mediapipe/drawing_utils/drawing_utils.js" crossorigin="anonymous"></script>
-
     <style>
-        /* Стили прямо здесь, чтобы не плодить файлы */
-        body, html { margin: 0; padding: 0; width: 100%; height: 100%; overflow: hidden; background: #000; }
-        #canvas_container { position: relative; width: 100vw; height: 100vh; }
-        canvas { width: 100%; height: 100%; object-fit: cover; }
-        
-        #overlay {
-            position: absolute; top: 10px; left: 10px; 
-            color: #00ffff; font-family: monospace; pointer-events: none;
-            background: rgba(0,0,0,0.5); padding: 10px; border-radius: 5px;
-            z-index: 10;
-        }
-        .error-msg { color: #ff4444; font-weight: bold; }
+        body, html { margin: 0; padding: 0; width: 100%; height: 100%; overflow: hidden; background: #000; font-family: sans-serif; }
+        #c { width: 100vw; height: 100vh; object-fit: cover; }
+        #ui { position: absolute; top: 20px; left: 20px; z-index: 10; pointer-events: none; }
+        .panel { background: rgba(0, 20, 40, 0.8); color: #00ffff; padding: 12px; border-radius: 10px; border: 1px solid #00ffff; box-shadow: 0 0 15px #00ffff; }
     </style>
 </head>
 <body>
-
-    <div id="canvas_container">
-        <div id="overlay">
-            <div id="info">Инициализация...</div>
-            <div id="err_log" class="error-msg"></div>
+    <div id="ui">
+        <div class="panel">
+            <b>FLUX AR ENGINE</b><br>
+            СТАТУС: <span id="st">ЗАГРУЗКА ИИ...</span><br>
+            ЖЕСТ: <span id="gst">НЕТ РУКИ</span>
         </div>
-        <video id="v" style="display:none;" playsinline></video>
-        <canvas id="c"></canvas>
     </div>
+    <video id="v" style="display:none;" playsinline></video>
+    <canvas id="c"></canvas>
 
-    <script>
-        // Проверка на HTTPS сразу
-        if (location.protocol !== 'https:' && location.hostname !== 'localhost') {
-            document.getElementById('err_log').innerText = "ОШИБКА: НУЖЕН HTTPS ДЛЯ КАМЕРЫ!";
-        }
-
+    <script type="module">
         const video = document.getElementById('v');
         const canvas = document.getElementById('c');
         const ctx = canvas.getContext('2d');
-        const info = document.getElementById('info');
+        const st = document.getElementById('st');
+        const gst = document.getElementById('gst');
 
         let menu = { x: 0.5, y: 0.5, active: false, visible: false };
 
-        // Настройка нейросети
-        const hands = new Hands({locateFile: (file) => `https://cdn.jsdelivr.net/npm/@mediapipe/hands/${file}`});
-        
-        hands.setOptions({
-            maxNumHands: 1,
-            modelComplexity: 1,
-            minDetectionConfidence: 0.7,
-            minTrackingConfidence: 0.7
-        });
+        const hands = new Hands({locateFile: (f) => `https://cdn.jsdelivr.net/npm/@mediapipe/hands/${f}`});
+        hands.setOptions({ maxNumHands: 1, modelComplexity: 1, minDetectionConfidence: 0.6, minTrackingConfidence: 0.6 });
 
-        hands.onResults((results) => {
-            info.innerText = "Система активна. Наведи на руку.";
+        hands.onResults((res) => {
+            st.innerText = "ONLINE";
             ctx.save();
             ctx.clearRect(0, 0, canvas.width, canvas.height);
-            ctx.drawImage(results.image, 0, 0, canvas.width, canvas.height);
+            ctx.drawImage(res.image, 0, 0, canvas.width, canvas.height);
 
-            if (results.multiHandLandmarks && results.multiHandLandmarks.length > 0) {
-                const hand = results.multiHandLandmarks[0];
+            if (res.multiHandLandmarks && res.multiHandLandmarks.length > 0) {
+                const h = res.multiHandLandmarks[0];
+                
+                // ЭФФЕКТ ПЕРЧАТКИ
+                drawConnectors(ctx, h, HAND_CONNECTIONS, {color: 'rgba(0, 255, 255, 0.6)', lineWidth: 4});
+                drawLandmarks(ctx, h, {color: '#ffffff', lineWidth: 1, radius: 2});
 
-                // Рисуем голубую "перчатку"
-                drawConnectors(ctx, hand, HAND_CONNECTIONS, {color: '#00ffff66', lineWidth: 2});
-                drawLandmarks(ctx, hand, {color: '#00ffff', lineWidth: 1, radius: 2});
-
-                // Логика захвата меню (пальцы 8 и 12)
-                const p1 = hand[8];
-                const p2 = hand[12];
-                const dist = Math.hypot(p1.x - p2.x, p1.y - p2.y);
-
-                if (dist < 0.05) {
+                // ЖЕСТ: УКАЗАТЕЛЬНЫЙ (8) + СРЕДНИЙ (12)
+                const d = Math.hypot(h[8].x - h[12].x, h[8].y - h[12].y);
+                if (d < 0.05) {
                     menu.visible = true;
                     menu.active = true;
-                    menu.x = p1.x;
-                    menu.y = p1.y - 0.1;
+                    menu.x = h[8].x;
+                    menu.y = h[8].y - 0.15; // Табличка над пальцами
+                    gst.innerText = "МЕНЮ ПОД КОНТРОЛЕМ";
                 } else {
                     menu.active = false;
+                    gst.innerText = "ЖДУ ЖЕСТА";
                 }
-
                 if (menu.visible) drawMenu(menu.x * canvas.width, menu.y * canvas.height, menu.active);
-            }
+            } else { gst.innerText = "ПОИСК РУКИ..."; }
             ctx.restore();
         });
 
         function drawMenu(x, y, active) {
-            ctx.fillStyle = "rgba(0, 20, 30, 0.9)";
-            ctx.strokeStyle = active ? "#fff" : "#00fbff";
+            ctx.fillStyle = "rgba(5, 10, 20, 0.9)";
+            ctx.strokeStyle = active ? "#fff" : "#00ffff";
             ctx.lineWidth = 3;
-            ctx.shadowBlur = active ? 20 : 5;
-            ctx.shadowColor = "#00ffff";
-
-            // Табличка
             ctx.beginPath();
-            ctx.roundRect(x - 90, y - 50, 180, 100, 15);
-            ctx.fill();
-            ctx.stroke();
-
-            // Текст
-            ctx.shadowBlur = 0;
+            ctx.roundRect(x - 90, y - 45, 180, 90, 15);
+            ctx.fill(); ctx.stroke();
             ctx.fillStyle = "#fff";
-            ctx.font = "bold 14px Arial";
             ctx.textAlign = "center";
+            ctx.font = "bold 16px Arial";
+            ctx.fillText("FLUX COASTER", x, y - 5);
+            ctx.fillStyle = active ? "#0f0" : "#00ffff";
+            ctx.font = "12px Arial";
+            ctx.fillText(active ? "ПЕРЕТАСКИВАНИЕ..." : "МЕНЮ АКТИВНО", x, y + 20);
+        }
+
+        async function start() {
+            try {
+                const stream = await navigator.mediaDevices.getUserMedia({video: {facingMode: "environment"}});
+                video.srcObject = stream;
+                await video.play();
+                const cam = new Camera(video, {
+                    onFrame: async () => {
+                        canvas.width = window.innerWidth;
+                        canvas.height = window.innerHeight;
+                        await hands.send({image: video});
+                    }
+                });
+                cam.start();
+            } catch (e) { st.innerText = "ОШИБКА КАМЕРЫ"; }
+        }
+        start();
+    </script>
+</body>
+</html>            ctx.textAlign = "center";
             ctx.fillText("ROLLER COASTER", x, y - 10);
             ctx.fillStyle = "#00ffff";
             ctx.fillText(active ? "ПЕРЕМЕЩЕНИЕ" : "УДЕРЖИВАЙТЕ", x, y + 20);
